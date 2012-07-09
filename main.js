@@ -52,7 +52,8 @@ define(function (require, exports, module) {
         this.increment = (origStringValue.indexOf(".") === -1) ? 1 : 0.1;
     }
     SimpleNumberScrub.matches = function (token) {
-        return token.className === "number";
+        // CodeMirror marks all sorts of CSS tokens as "number", including enums like "auto" and segments of URL paths
+        return token.className === "number" && !isNaN(parseFloat(token.string));
     };
     SimpleNumberScrub.prototype.update = function (delta) {
         var newVal = this.origValue + (delta * this.increment);
@@ -104,9 +105,20 @@ define(function (require, exports, module) {
         var b = clip(this.b + delta, 255);
         return "#" + force2Digits(r.toString(16)) + force2Digits(g.toString(16)) + force2Digits(b.toString(16));
     };
+    
+    function parseForScrub(token) {
+        if (Color3Scrub.matches(token)) {
+            return new Color3Scrub(token.string);
+        } else if (Color6Scrub.matches(token)) {
+            return new Color6Scrub(token.string);
+        } else if (SimpleNumberScrub.matches(token)) {
+            return new SimpleNumberScrub(token.string);
+        }
+        return null;
+    }
 
     
-    /** Main scrubbing event handling. Validates number format, adds global move/up listeners, detaches when done */
+    /** Main scrubbing event handling. Detects number format, adds global move/up listeners, detaches when done */
     function handleEditorMouseDown(editor, event) {
         // Drag state
         var scrubState; // instance of one of the *Scrub classes
@@ -134,18 +146,21 @@ define(function (require, exports, module) {
             $(window.document).off("mouseup", upHandler);
         }
         
+        //  coordsChar() returns the closest insertion point, not always char the click was ON.
+        //  -------------------
+        //  |     I* X  |     |     * = mousedn
+        //  -------------------     X = coordsChar().ch, interpreted as a char pos
+        //  |     |    *I  X  |     I = coordsChar().ch, interpreted as a cursor pos / insertion point
+        //  -------------------
         var pos = editor._codeMirror.coordsChar({x: event.pageX, y: event.pageY});
-        var token = editor._codeMirror.getTokenAt(pos);
+        var chLeftEdge = editor._codeMirror.charCoords(pos).x;
+        var mousedownCh = (chLeftEdge <= event.pageX) ? pos.ch : pos.ch - 1;
         
-        if (Color3Scrub.matches(token)) {
-            scrubState = new Color3Scrub(token.string);
-        } else if (Color6Scrub.matches(token)) {
-            scrubState = new Color6Scrub(token.string);
-        } else if (SimpleNumberScrub.matches(token)) {
-            scrubState = new SimpleNumberScrub(token.string);
-        } else {
-            scrubState = null;
-        }
+        // ch+1 because getTokenAt() returns the token *ending* at cursor pos 'ch' (char at 'ch' is NOT part of the token)
+        var token = editor._codeMirror.getTokenAt({line: pos.line, ch: mousedownCh + 1});
+        
+        // Is this token a value we can scrub? Init value-specific state if so
+        scrubState = parseForScrub(token);
         
         if (scrubState) {
             event.stopPropagation();
@@ -203,6 +218,7 @@ define(function (require, exports, module) {
             }
         }
     }
+    
     
     // Init: listen to all mousedowns in the editor area
     $("#editor-holder")[0].addEventListener("mousedown", handleMouseDown, true);
