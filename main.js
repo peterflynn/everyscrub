@@ -24,11 +24,13 @@
 /*global define, brackets, $, window */
 
 define(function (require, exports, module) {
-    'use strict';
+    "use strict";
     
     // Brackets modules
-    var EditorManager    = brackets.getModule("editor/EditorManager"),
-        InlineTextEditor = brackets.getModule("editor/InlineTextEditor").InlineTextEditor;
+    var EditorManager     = brackets.getModule("editor/EditorManager"),
+        InlineTextEditor  = brackets.getModule("editor/InlineTextEditor").InlineTextEditor,
+        CommandManager    = brackets.getModule("command/CommandManager"),
+        KeyBindingManager = brackets.getModule("command/KeyBindingManager");
     
     
     var isMac = (brackets.platform === "mac");
@@ -138,7 +140,7 @@ define(function (require, exports, module) {
                 lastValue = newVal;
                 editor._codeMirror.replaceRange(newVal, lastRange.start, lastRange.end);
                 lastRange.end.ch = lastRange.start.ch + newVal.length;
-//                editor.setSelection(lastRange.start, lastRange.end);
+                editor.setSelection(lastRange.start, lastRange.end);
             }
         }
         function upHandler(event) {
@@ -173,8 +175,7 @@ define(function (require, exports, module) {
             $(window.document).mousemove(moveHandler);
             $(window.document).mouseup(upHandler);
             
-//            editor.setSelection(lastRange.start, lastRange.end);
-            editor.setCursorPos(lastRange.start.line, lastRange.end.ch);
+            editor.setSelection(lastRange.start, lastRange.end);
         }
     }
     
@@ -220,6 +221,63 @@ define(function (require, exports, module) {
     }
     
     
+    // Remember state between consecutive nudges of the same number. Otherwise nudging colors wouldn't work well
+    // because we lose the original once one channel saturates
+    var lastNudge = null;
+    
+    function nudge(dir) {
+        var editor = EditorManager.getFocusedEditor();
+        if (!editor) {
+            return;
+        }
+        var cursorPos = editor.getCursorPos();
+        
+        function getScrubState(token) {
+            // We're continuing the last nudge if it's in the same place and the text is how we left it
+            if (lastNudge && cursorPos.line === lastNudge.line && token.start === lastNudge.ch && token.string === lastNudge.lastText) {
+                lastNudge.delta += dir;
+                return lastNudge.scrubState;
+            } else {
+                var newState = parseForScrub(token);
+                if (newState) {
+                    // Found a token to nudge that's not the last one we used, so re-init lastNudge. Don't touch lastNudge
+                    // if newState is null, since we might retry to the R of the cursor and find a match to lastNudge.
+                    lastNudge = { scrubState: newState, delta: dir, line: cursorPos.line, ch: token.start };
+                }
+                return newState;
+            }
+        }
+        
+        // First try the token to the L of the cursor
+        var token = editor._codeMirror.getTokenAt(cursorPos);
+        var scrubState = getScrubState(token);
+        if (!scrubState) {
+            // If not, try to the R of the cursor
+            cursorPos.ch++;
+            token = editor._codeMirror.getTokenAt(cursorPos);
+            scrubState = getScrubState(token);
+        }
+        
+        if (scrubState) {
+            var newVal = scrubState.update(lastNudge.delta);
+            var tokenRange = {start: {line: cursorPos.line, ch: token.start}, end: {line: cursorPos.line, ch: token.end}};
+            editor._codeMirror.replaceRange(newVal, tokenRange.start, tokenRange.end);
+            lastNudge.lastText = newVal;
+            
+            tokenRange.end.ch = tokenRange.start.ch + newVal.length;
+            editor.setSelection(tokenRange.start, tokenRange.end);
+        }
+
+    }
+    
     // Init: listen to all mousedowns in the editor area
     $("#editor-holder")[0].addEventListener("mousedown", handleMouseDown, true);
+    
+    // Keyboard shortcuts to "nudge" value up/down
+    var CMD_NUDGE_UP = "pflynn.everyscrub.nudge_up",
+        CMD_NUDGE_DN = "pflynn.everyscrub.nudge_down";
+    CommandManager.register("Increment Number", CMD_NUDGE_UP, function () { nudge(+1); });
+    CommandManager.register("Decrement Number", CMD_NUDGE_DN, function () { nudge(-1); });
+    KeyBindingManager.addBinding(CMD_NUDGE_UP, "Shift-Alt-Up");
+    KeyBindingManager.addBinding(CMD_NUDGE_DN, "Shift-Alt-Down");
 });
