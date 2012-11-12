@@ -13,8 +13,10 @@ Everyscrub is an extension for [Brackets](https://github.com/adobe/brackets/), a
 To use Everyscrub:
 
 1. [Download the ZIP](https://github.com/peterflynn/everyscrub/downloads) and unzip it; or clone this repo
-2. Place the everyscrub folder so the structure is: `brackets/src/extensions/user/everyscrub/main.js`
-3. Launch Brackets!
+2. Open your extensions folder: _Help > Show Extensions Folder_
+3. Place the folder so the structure is: `extensions/user/everyscrub/main.js`
+4. Restart Brackets!
+
 
 License
 =======

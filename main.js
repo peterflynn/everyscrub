@@ -88,7 +88,10 @@ define(function (require, exports, module) {
     // Color utils
     function getColorCandidate(token) {
         if (token.className === "atom") {
-            // Colors in CSS are a type "atom"
+            // Colors in CSS are type atom
+            return token.string;
+        } else if (token.className === "number") {
+            // Colors in LESS are type number
             return token.string;
         } else if (token.className === "string") {
             // Token type string may contain a number, e.g. in HTML or SVG code
