@@ -42,20 +42,35 @@ define(function (require, exports, module) {
     
     
     // Scrubbing a single number (with optional suffix)
-    function SimpleNumberScrub(string) {
-        // Support numbers with a suffix like "px" or "%"
-        var extras = /(-?[\d\.]+)([^\d\-\.]*)/.exec(string);
-        var origStringValue = (extras && extras[1]) || string;
-        this.suffix = (extras && extras[2]) || "";
-        
+    function SimpleNumberScrub(origStringValue, prefix, suffix) {
+        this.prefix = prefix;
+        this.suffix = suffix;
         this.origValue = parseFloat(origStringValue);
         
         // Increment slower for numbers with decimal (even if it's ".0")
         this.increment = (origStringValue.indexOf(".") === -1) ? 1 : 0.1;
     }
-    SimpleNumberScrub.matches = function (token) {
-        // CodeMirror marks all sorts of CSS tokens as "number", including enums like "auto" and segments of URL paths
-        return token.className === "number" && !isNaN(parseFloat(token.string));
+    SimpleNumberScrub.parse = function (token) {
+        var candidate;
+        if (token.className === "number") {
+            // Token type number often occurs in JS and CSS code
+            // (although CodeMirror marks all sorts of CSS tokens as "number", including enums like "auto" and segments of URL paths)
+            candidate = token.string;
+        } else if (token.className === "string") {
+            // Token type string may contain a number, e.g. in HTML or SVG code
+            candidate = token.string;
+        }
+        
+        // Support numbers with a suffix like "px" or "%"
+        var extras = /([^\d\-\.]*)(-?[\d\.]+)(.*)/.exec(candidate);
+        var origStringValue = (extras && extras[2]) || candidate;
+        if (isNaN(parseFloat(origStringValue))) {
+            return null;
+        } else {
+            var prefix = (extras && extras[1]) || "";
+            var suffix = (extras && extras[3]) || "";
+            return new SimpleNumberScrub(origStringValue, prefix, suffix);
+        }
     };
     SimpleNumberScrub.prototype.update = function (delta) {
         var newVal = this.origValue + (delta * this.increment);
@@ -67,33 +82,62 @@ define(function (require, exports, module) {
         if (this.increment < 1 && str.indexOf(".") === -1) {
             str += ".0";    // don't jitter to a shorter length when passing a whole number
         }
-        return str + this.suffix;
+        return this.prefix + str + this.suffix;
     };
     
+    // Color utils
+    function getColorCandidate(token) {
+        if (token.className === "atom") {
+            // Colors in CSS are a type "atom"
+            return token.string;
+        } else if (token.className === "string") {
+            // Token type string may contain a number, e.g. in HTML or SVG code
+            return token.string;
+        }
+    }
+    
     // Scrubbing 3-digit hex color
-    function Color3Scrub(string) {
+    function Color3Scrub(string, prefix, suffix) {
+        this.prefix = prefix;
+        this.suffix = suffix;
         this.r = parseInt(string[1], 16);
         this.g = parseInt(string[2], 16);
         this.b = parseInt(string[3], 16);
     }
-    Color3Scrub.matches = function (token) {
-        return token.className === "atom" && token.string.match(/#[0-9a-f]{3}$/i);
+    Color3Scrub.parse = function (token) {
+        var candidate = getColorCandidate(token);
+        var extras = /([^#]*)(#[0-9a-f]{3})([^0-9a-f]+.*|$)/i.exec(candidate);
+        if (extras) {
+            var colorStr = (extras && extras[2]) || "";
+            var prefix = (extras && extras[1]) || "";
+            var suffix = (extras && extras[3]) || "";
+            return new Color3Scrub(colorStr, prefix, suffix);
+        }
     };
     Color3Scrub.prototype.update = function (delta) {
         var r = clip(this.r + delta, 15);
         var g = clip(this.g + delta, 15);
         var b = clip(this.b + delta, 15);
-        return "#" + r.toString(16) + g.toString(16) + b.toString(16);
+        return this.prefix + "#" + r.toString(16) + g.toString(16) + b.toString(16) + this.suffix;
     };
     
     // Scrubbing 6-digit hex color
-    function Color6Scrub(string) {
+    function Color6Scrub(string, prefix, suffix) {
+        this.prefix = prefix;
+        this.suffix = suffix;
         this.r = parseInt(string[1] + string[2], 16);
         this.g = parseInt(string[3] + string[4], 16);
         this.b = parseInt(string[5] + string[6], 16);
     }
-    Color6Scrub.matches = function (token) {
-        return token.className === "atom" && token.string.match(/#[0-9a-f]{6}$/i);
+    Color6Scrub.parse = function (token) {
+        var candidate = getColorCandidate(token);
+        var extras = /([^#]*)(#[0-9a-f]{6})([^0-9a-f]+.*|$)/i.exec(candidate);
+        if (extras) {
+            var colorStr = (extras && extras[2]) || "";
+            var prefix = (extras && extras[1]) || "";
+            var suffix = (extras && extras[3]) || "";
+            return new Color6Scrub(colorStr, prefix, suffix);
+        }
     };
     Color6Scrub.prototype.update = function (delta) {
         function force2Digits(str) {
@@ -105,18 +149,15 @@ define(function (require, exports, module) {
         var r = clip(this.r + delta, 255);
         var g = clip(this.g + delta, 255);
         var b = clip(this.b + delta, 255);
-        return "#" + force2Digits(r.toString(16)) + force2Digits(g.toString(16)) + force2Digits(b.toString(16));
+        return this.prefix + "#" + force2Digits(r.toString(16)) + force2Digits(g.toString(16)) + force2Digits(b.toString(16)) + this.suffix;
     };
     
     function parseForScrub(token) {
-        if (Color3Scrub.matches(token)) {
-            return new Color3Scrub(token.string);
-        } else if (Color6Scrub.matches(token)) {
-            return new Color6Scrub(token.string);
-        } else if (SimpleNumberScrub.matches(token)) {
-            return new SimpleNumberScrub(token.string);
-        }
-        return null;
+        return (
+            Color3Scrub.parse(token) ||
+            Color6Scrub.parse(token) ||
+            SimpleNumberScrub.parse(token)
+        );
     }
 
     

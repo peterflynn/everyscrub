@@ -4,7 +4,7 @@ Everything's a scrubber! Cmd/Ctrl + drag on any number or hex color to scrub its
 
 You can also tap Shift+Alt+Up/Down to "nudge" the value in individual increments.
 
-Works with any number in CSS, LESS, and JavaScript. Also works with 3- or 6-digit hex colors in CSS and LESS (darkens/lightens the color). Just hold down Cmd (Mac) or Ctrl (Win), click on the number in your source code, and drag the mouse horizontally.
+Works with any number in CSS, LESS, SVG, HTML and JavaScript. Also works with 3- or 6-digit hex colors (darkens/lightens the color). Just hold down Cmd (Mac) or Ctrl (Win), mouse down on the number in your source code, and drag the mouse horizontally.
 
 What is Brackets?
 ==========
