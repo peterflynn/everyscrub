@@ -12,12 +12,14 @@ Everyscrub is an extension for [Brackets](https://github.com/adobe/brackets/), a
 
 To use Everyscrub:
 
-1. [Download the ZIP](https://github.com/peterflynn/everyscrub/downloads) and unzip it; or clone this repo
+1. [Download the ZIP](https://github.com/peterflynn/everyscrub/archive/master.zip) and unzip it; or clone this repo
 2. Open your extensions folder: _Help > Show Extensions Folder_
 3. Place the folder so the structure is: `extensions/user/everyscrub/main.js`
 4. Restart Brackets!
 
 
-License
-=======
-MIT-licensed -- see _main.js_ for details.
+### License
+MIT-licensed -- see `main.js` for details.
+
+### Compatibility
+Brackets Sprint 14 or newer (or any version of Adobe Edge Code). Undo functionality is improved when running in Brackets Sprint 20 or newer.

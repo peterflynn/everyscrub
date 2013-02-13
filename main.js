@@ -40,6 +40,8 @@ define(function (require, exports, module) {
         return (val < 0 ? 0 : (val > max ? max : val));
     }
     
+    var uniqueNum = 0;  // used to ensure unique undo batching per drag
+    
     
     // Scrubbing a single number (with optional suffix)
     function SimpleNumberScrub(origStringValue, prefix, suffix) {
@@ -94,7 +96,7 @@ define(function (require, exports, module) {
             // Colors in LESS are type number
             return token.string;
         } else if (token.className === "string") {
-            // Token type string may contain a number, e.g. in HTML or SVG code
+            // Token type string may contain a number in the attrs of XML-like modes (e.g. HTML or SVG)
             return token.string;
         }
     }
@@ -156,11 +158,16 @@ define(function (require, exports, module) {
     };
     
     function parseForScrub(token) {
-        return (
+        var initialState = (
             Color3Scrub.parse(token) ||
             Color6Scrub.parse(token) ||
             SimpleNumberScrub.parse(token)
         );
+        if (initialState) {
+            // in Sprint 20 (CMv3), this ensures the entire drag (or consecutive nudges) is undone atomically; ignored in earlier builds
+            initialState.origin = "*everyscrub" + (++uniqueNum);
+        }
+        return initialState;
     }
 
     
@@ -182,7 +189,7 @@ define(function (require, exports, module) {
             
             if (newVal !== lastValue) {
                 lastValue = newVal;
-                editor._codeMirror.replaceRange(newVal, lastRange.start, lastRange.end);
+                editor._codeMirror.replaceRange(newVal, lastRange.start, lastRange.end, scrubState.origin);
                 lastRange.end.ch = lastRange.start.ch + newVal.length;
                 editor.setSelection(lastRange.start, lastRange.end);
             }
@@ -198,8 +205,9 @@ define(function (require, exports, module) {
         //  -------------------     X = coordsChar().ch, interpreted as a char pos
         //  |     |    *I  X  |     I = coordsChar().ch, interpreted as a cursor pos / insertion point
         //  -------------------
-        var pos = editor._codeMirror.coordsChar({x: event.pageX, y: event.pageY});
-        var chLeftEdge = editor._codeMirror.charCoords(pos).x;
+        var pos = editor._codeMirror.coordsChar({x: event.pageX, y: event.pageY, left: event.pageX, top: event.pageY});  // x/y for CMv2; left/top for v3
+        var charBounds = editor._codeMirror.charCoords(pos);
+        var chLeftEdge = (charBounds.x !== undefined) ? charBounds.x : charBounds.left;  // x for CMv2; left for CMv3
         var mousedownCh = (chLeftEdge <= event.pageX) ? pos.ch : pos.ch - 1;
         
         // ch+1 because getTokenAt() returns the token *ending* at cursor pos 'ch' (char at 'ch' is NOT part of the token)
@@ -305,7 +313,7 @@ define(function (require, exports, module) {
         if (scrubState) {
             var newVal = scrubState.update(lastNudge.delta);
             var tokenRange = {start: {line: cursorPos.line, ch: token.start}, end: {line: cursorPos.line, ch: token.end}};
-            editor._codeMirror.replaceRange(newVal, tokenRange.start, tokenRange.end);
+            editor._codeMirror.replaceRange(newVal, tokenRange.start, tokenRange.end, scrubState.origin);
             lastNudge.lastText = newVal;
             
             tokenRange.end.ch = tokenRange.start.ch + newVal.length;
