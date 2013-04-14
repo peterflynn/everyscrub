@@ -169,6 +169,44 @@ define(function (require, exports, module) {
         }
         return initialState;
     }
+    
+    function correctTokenAtLineForCodeMirrorIdiosyncrasiesUsingEditor(token, line, editor) {
+        var decimalSeparatorToken;
+        if (token.className === "number") {
+            if (token.string.indexOf(".") === -1) {
+                // if it doesn't contain a decimal separator point already check whether there is one in front of it
+                // because that wouldn't be included in the number token itself
+                decimalSeparatorToken = editor._codeMirror.getTokenAt({line: line, ch: token.start}); // start is the end of the previous token and CodeMirror looks for the token ending there
+                if ((decimalSeparatorToken.className === null) && (decimalSeparatorToken.string === ".")) {
+                    // there is indeed a decimal separator token in front of the number, include it when parsing for the scrub
+                    token = {
+                        className: token.className,
+                        string: decimalSeparatorToken.string + token.string,
+                        start: decimalSeparatorToken.start,
+                        end: token.end,
+                        state: token.state
+                    };
+                }
+            }
+        } else if ((token.className === null) && (token.string === ".")) {
+            // we got a "." which might be the start of a float like .23
+            // check the next token
+            decimalSeparatorToken = token;
+            token = editor._codeMirror.getTokenAt({line: line, ch: decimalSeparatorToken.end + 1});
+            if (token.className === "number") {
+                token = {
+                    className: token.className,
+                    string: decimalSeparatorToken.string + token.string,
+                    start: decimalSeparatorToken.start,
+                    end: token.end,
+                    state: token.state
+                };
+            } else {
+                token = decimalSeparatorToken;
+            }
+        }
+        return token;
+    }
 
     
     /** Main scrubbing event handling. Detects number format, adds global move/up listeners, detaches when done */
@@ -212,6 +250,7 @@ define(function (require, exports, module) {
         
         // ch+1 because getTokenAt() returns the token *ending* at cursor pos 'ch' (char at 'ch' is NOT part of the token)
         var token = editor._codeMirror.getTokenAt({line: pos.line, ch: mousedownCh + 1});
+        token = correctTokenAtLineForCodeMirrorIdiosyncrasiesUsingEditor(token, pos.line, editor);
         
         // Is this token a value we can scrub? Init value-specific state if so
         scrubState = parseForScrub(token);
@@ -302,11 +341,13 @@ define(function (require, exports, module) {
         
         // First try the token to the L of the cursor
         var token = editor._codeMirror.getTokenAt(cursorPos);
+        token = correctTokenAtLineForCodeMirrorIdiosyncrasiesUsingEditor(token, cursorPos.line, editor);
         var scrubState = getScrubState(token);
         if (!scrubState) {
             // If not, try to the R of the cursor
             cursorPos.ch++;
             token = editor._codeMirror.getTokenAt(cursorPos);
+            token = correctTokenAtLineForCodeMirrorIdiosyncrasiesUsingEditor(token, cursorPos.line, editor);
             scrubState = getScrubState(token);
         }
         
