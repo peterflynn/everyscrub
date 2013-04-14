@@ -30,10 +30,15 @@ define(function (require, exports, module) {
     var EditorManager     = brackets.getModule("editor/EditorManager"),
         InlineTextEditor  = brackets.getModule("editor/InlineTextEditor").InlineTextEditor,
         CommandManager    = brackets.getModule("command/CommandManager"),
-        KeyBindingManager = brackets.getModule("command/KeyBindingManager");
+        KeyBindingManager = brackets.getModule("command/KeyBindingManager"),
+        ExtensionUtils    = brackets.getModule("utils/ExtensionUtils");
+
+    
+    ExtensionUtils.loadStyleSheet(module, "main.less");
     
     
     var isMac = (brackets.platform === "mac");
+    var scrubbableHighlightOptions = {className: "everyscrub-changeable-highlight", inclusiveLeft: true, inclusiveRight: true};
     
     // Utilities
     function clip(val, max) {
@@ -216,6 +221,7 @@ define(function (require, exports, module) {
         var downX;      // mousedown pageX
         var lastValue;  // last value from scrubState.update()
         var lastRange;  // text range of lastValue in the code
+        var scrubbedValueHighlight; // the highlight in CodeMirror
         
         function delta(event) {
             var pxDelta = event.pageX - downX;
@@ -235,6 +241,9 @@ define(function (require, exports, module) {
         function upHandler(event) {
             $(window.document).off("mousemove", moveHandler);
             $(window.document).off("mouseup", upHandler);
+            if (scrubbedValueHighlight) {
+                scrubbedValueHighlight.clear();
+            }
         }
         
         //  coordsChar() returns the closest insertion point, not always char the click was ON.
@@ -267,6 +276,7 @@ define(function (require, exports, module) {
             $(window.document).mouseup(upHandler);
             
             editor.setSelection(lastRange.start, lastRange.end);
+            scrubbedValueHighlight = editor._codeMirror.markText(lastRange.start, lastRange.end, scrubbableHighlightOptions);
         }
     }
     
@@ -363,8 +373,50 @@ define(function (require, exports, module) {
 
     }
     
+    function changeCursorToHighlightScrubbablesOnKeyDown(event) {
+        var $numberSpanUnderMouse, highlight, keyUpListener;
+        if ((isMac && event.metaKey) || (!isMac && event.ctrlKey)) {
+            $numberSpanUnderMouse = $("span.cm-number:hover");
+            if ($numberSpanUnderMouse.length > 0) {
+                $numberSpanUnderMouse.addClass("everyscrub-ready-to-be-scrubbed");
+                
+                keyUpListener = $("#editor-holder")[0].addEventListener("keyup", function (event) {
+                    if (!event.metaKey && !event.ctrlKey) {
+                        $numberSpanUnderMouse.removeClass("everyscrub-ready-to-be-scrubbed");
+                        $("#editor-holder")[0].removeEventListener("keyup", keyUpListener);
+                    }
+                }, false);
+            }
+        } else if (event.shiftKey && event.altKey) {
+            var editor = EditorManager.getFocusedEditor();
+            if (!editor) {
+                return;
+            }
+            var cursorPos = editor.getCursorPos();
+            var token = editor._codeMirror.getTokenAt(cursorPos);
+            token = correctTokenAtLineForCodeMirrorIdiosyncrasiesUsingEditor(token, cursorPos.line, editor);
+            if (token.className !== "number") {
+                cursorPos.ch++;
+                token = editor._codeMirror.getTokenAt(cursorPos);
+                token = correctTokenAtLineForCodeMirrorIdiosyncrasiesUsingEditor(token, cursorPos.line, editor);
+            }
+            
+            if (token.className === "number") {
+                highlight = editor._codeMirror.markText({line: cursorPos.line, ch: token.start}, {line: cursorPos.line, ch: token.end}, scrubbableHighlightOptions);
+                
+                keyUpListener = $("#editor-holder")[0].addEventListener("keyup", function (event) {
+                    if (!event.altKey || !event.shiftKey) {
+                        highlight.clear();
+                        $("#editor-holder")[0].removeEventListener("keyup", keyUpListener);
+                    }
+                }, false);
+            }
+        }
+    }
+    
     // Init: listen to all mousedowns in the editor area
     $("#editor-holder")[0].addEventListener("mousedown", handleMouseDown, true);
+    $("#editor-holder")[0].addEventListener("keydown", changeCursorToHighlightScrubbablesOnKeyDown, false);
     
     // Keyboard shortcuts to "nudge" value up/down
     var CMD_NUDGE_UP = "pflynn.everyscrub.nudge_up",
