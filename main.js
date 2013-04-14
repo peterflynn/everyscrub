@@ -30,10 +30,15 @@ define(function (require, exports, module) {
     var EditorManager     = brackets.getModule("editor/EditorManager"),
         InlineTextEditor  = brackets.getModule("editor/InlineTextEditor").InlineTextEditor,
         CommandManager    = brackets.getModule("command/CommandManager"),
-        KeyBindingManager = brackets.getModule("command/KeyBindingManager");
+        KeyBindingManager = brackets.getModule("command/KeyBindingManager"),
+        ExtensionUtils    = brackets.getModule("utils/ExtensionUtils");
+
+    
+    ExtensionUtils.loadStyleSheet(module, "main.less");
     
     
     var isMac = (brackets.platform === "mac");
+    var scrubbableHighlightOptions = {className: "everyscrub-changeable-highlight", inclusiveLeft: true, inclusiveRight: true};
     
     // Utilities
     function clip(val, max) {
@@ -64,7 +69,7 @@ define(function (require, exports, module) {
         }
         
         // Support numbers with a suffix like "px" or "%"
-        var extras = /([^\d\-\.]*)(-?[\d\.]+)(.*)/.exec(candidate);
+        var extras = /([^\d\-\.]*)(-?(?:(?:\d*\.)|(?:\d+\.?))\d*)(.*)/.exec(candidate);
         var origStringValue = (extras && extras[2]) || candidate;
         if (isNaN(parseFloat(origStringValue))) {
             return null;
@@ -169,6 +174,44 @@ define(function (require, exports, module) {
         }
         return initialState;
     }
+    
+    function correctTokenAtLineForCodeMirrorIdiosyncrasiesUsingEditor(token, line, editor) {
+        var decimalSeparatorToken;
+        if (token.className === "number") {
+            if (token.string.indexOf(".") === -1) {
+                // if it doesn't contain a decimal separator point already check whether there is one in front of it
+                // because that wouldn't be included in the number token itself
+                decimalSeparatorToken = editor._codeMirror.getTokenAt({line: line, ch: token.start}); // start is the end of the previous token and CodeMirror looks for the token ending there
+                if ((decimalSeparatorToken.className === null) && (decimalSeparatorToken.string === ".")) {
+                    // there is indeed a decimal separator token in front of the number, include it when parsing for the scrub
+                    token = {
+                        className: token.className,
+                        string: decimalSeparatorToken.string + token.string,
+                        start: decimalSeparatorToken.start,
+                        end: token.end,
+                        state: token.state
+                    };
+                }
+            }
+        } else if ((token.className === null) && (token.string === ".")) {
+            // we got a "." which might be the start of a float like .23
+            // check the next token
+            decimalSeparatorToken = token;
+            token = editor._codeMirror.getTokenAt({line: line, ch: decimalSeparatorToken.end + 1});
+            if (token.className === "number") {
+                token = {
+                    className: token.className,
+                    string: decimalSeparatorToken.string + token.string,
+                    start: decimalSeparatorToken.start,
+                    end: token.end,
+                    state: token.state
+                };
+            } else {
+                token = decimalSeparatorToken;
+            }
+        }
+        return token;
+    }
 
     
     /** Main scrubbing event handling. Detects number format, adds global move/up listeners, detaches when done */
@@ -178,6 +221,7 @@ define(function (require, exports, module) {
         var downX;      // mousedown pageX
         var lastValue;  // last value from scrubState.update()
         var lastRange;  // text range of lastValue in the code
+        var scrubbedValueHighlight; // the highlight in CodeMirror
         
         function delta(event) {
             var pxDelta = event.pageX - downX;
@@ -197,6 +241,9 @@ define(function (require, exports, module) {
         function upHandler(event) {
             $(window.document).off("mousemove", moveHandler);
             $(window.document).off("mouseup", upHandler);
+            if (scrubbedValueHighlight) {
+                scrubbedValueHighlight.clear();
+            }
         }
         
         //  coordsChar() returns the closest insertion point, not always char the click was ON.
@@ -212,6 +259,7 @@ define(function (require, exports, module) {
         
         // ch+1 because getTokenAt() returns the token *ending* at cursor pos 'ch' (char at 'ch' is NOT part of the token)
         var token = editor._codeMirror.getTokenAt({line: pos.line, ch: mousedownCh + 1});
+        token = correctTokenAtLineForCodeMirrorIdiosyncrasiesUsingEditor(token, pos.line, editor);
         
         // Is this token a value we can scrub? Init value-specific state if so
         scrubState = parseForScrub(token);
@@ -228,6 +276,7 @@ define(function (require, exports, module) {
             $(window.document).mouseup(upHandler);
             
             editor.setSelection(lastRange.start, lastRange.end);
+            scrubbedValueHighlight = editor._codeMirror.markText(lastRange.start, lastRange.end, scrubbableHighlightOptions);
         }
     }
     
@@ -302,11 +351,13 @@ define(function (require, exports, module) {
         
         // First try the token to the L of the cursor
         var token = editor._codeMirror.getTokenAt(cursorPos);
+        token = correctTokenAtLineForCodeMirrorIdiosyncrasiesUsingEditor(token, cursorPos.line, editor);
         var scrubState = getScrubState(token);
         if (!scrubState) {
             // If not, try to the R of the cursor
             cursorPos.ch++;
             token = editor._codeMirror.getTokenAt(cursorPos);
+            token = correctTokenAtLineForCodeMirrorIdiosyncrasiesUsingEditor(token, cursorPos.line, editor);
             scrubState = getScrubState(token);
         }
         
@@ -322,8 +373,50 @@ define(function (require, exports, module) {
 
     }
     
+    function changeCursorToHighlightScrubbablesOnKeyDown(event) {
+        var $numberSpanUnderMouse, highlight, keyUpListener;
+        if ((isMac && event.metaKey) || (!isMac && event.ctrlKey)) {
+            $numberSpanUnderMouse = $("span.cm-number:hover");
+            if ($numberSpanUnderMouse.length > 0) {
+                $numberSpanUnderMouse.addClass("everyscrub-ready-to-be-scrubbed");
+                
+                keyUpListener = $("#editor-holder")[0].addEventListener("keyup", function (event) {
+                    if (!event.metaKey && !event.ctrlKey) {
+                        $numberSpanUnderMouse.removeClass("everyscrub-ready-to-be-scrubbed");
+                        $("#editor-holder")[0].removeEventListener("keyup", keyUpListener);
+                    }
+                }, false);
+            }
+        } else if (event.shiftKey && event.altKey) {
+            var editor = EditorManager.getFocusedEditor();
+            if (!editor) {
+                return;
+            }
+            var cursorPos = editor.getCursorPos();
+            var token = editor._codeMirror.getTokenAt(cursorPos);
+            token = correctTokenAtLineForCodeMirrorIdiosyncrasiesUsingEditor(token, cursorPos.line, editor);
+            if (token.className !== "number") {
+                cursorPos.ch++;
+                token = editor._codeMirror.getTokenAt(cursorPos);
+                token = correctTokenAtLineForCodeMirrorIdiosyncrasiesUsingEditor(token, cursorPos.line, editor);
+            }
+            
+            if (token.className === "number") {
+                highlight = editor._codeMirror.markText({line: cursorPos.line, ch: token.start}, {line: cursorPos.line, ch: token.end}, scrubbableHighlightOptions);
+                
+                keyUpListener = $("#editor-holder")[0].addEventListener("keyup", function (event) {
+                    if (!event.altKey || !event.shiftKey) {
+                        highlight.clear();
+                        $("#editor-holder")[0].removeEventListener("keyup", keyUpListener);
+                    }
+                }, false);
+            }
+        }
+    }
+    
     // Init: listen to all mousedowns in the editor area
     $("#editor-holder")[0].addEventListener("mousedown", handleMouseDown, true);
+    $("#editor-holder")[0].addEventListener("keydown", changeCursorToHighlightScrubbablesOnKeyDown, false);
     
     // Keyboard shortcuts to "nudge" value up/down
     var CMD_NUDGE_UP = "pflynn.everyscrub.nudge_up",
