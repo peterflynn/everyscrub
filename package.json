@@ -1,6 +1,8 @@
 {
     "name": "pflynn.everyscrub",
     "title": "Everyscrub",
+    "homepage": "https://github.com/peterflynn/everyscrub",
+    "author": "Peter Flynn",
     "version": "1.2.2",
     "engines": { "brackets": ">=0.14" },
     "description": "Everything's a scrubber! Cmd/Ctrl + drag on any number or hex color to scrub its value and update the browser in real time."
