@@ -15,7 +15,7 @@ Everyscrub is an extension for [Brackets](https://github.com/adobe/brackets/), a
 
 To use Everyscrub:
 
-1. Choose _File > Install Extension_
+1. Choose _File > Extension Manager..._
 2. Enter this URL: _https://github.com/peterflynn/everyscrub_
 3. Click _Install_!
 
