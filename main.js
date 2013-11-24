@@ -64,7 +64,7 @@ define(function (require, exports, module) {
         }
         
         // Support numbers with a suffix like "px" or "%"
-        var extras = /([^\d\-\.]*)(-?[\d\.]+)(.*)/.exec(candidate);
+        var extras = /([^\d\-\.]*)(-?(?:(?:\d*\.)|(?:\d+\.?))\d*)(.*)/.exec(candidate);
         var origStringValue = (extras && extras[2]) || candidate;
         if (isNaN(parseFloat(origStringValue))) {
             return null;
