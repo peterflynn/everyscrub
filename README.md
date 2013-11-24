@@ -24,5 +24,7 @@ To install extensions:
 MIT-licensed -- see `main.js` for details.
 
 ### Compatibility
-Brackets Sprint 14 or newer (or any version of Adobe Edge Code). Undo functionality is improved when running in Brackets Sprint 20
-or newer (Edge Code Preview 3 or newer).
+Brackets Sprint 33 or newer (Adobe Edge Code Preview 7 or newer).
+
+Use the older release at [commit `e974ebd8`](https://github.com/peterflynn/everyscrub/commit/e974ebd8) if you need compatibility
+with older versions of Brackets and Edge Code.

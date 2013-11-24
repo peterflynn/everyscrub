@@ -35,45 +35,36 @@ define(function (require, exports, module) {
     
     var isMac = (brackets.platform === "mac");
     
+    var uniqueNum = 0;  // used to ensure unique undo batching per drag
+    
     // Utilities
     function clip(val, max) {
         return (val < 0 ? 0 : (val > max ? max : val));
     }
     
-    var uniqueNum = 0;  // used to ensure unique undo batching per drag
+    /** Finds a regex match whose bounds overlap or touch the given insertion point index */
+    function findMatchNearPos(regex, string, goalI) {
+        regex.lastIndex = 0;  // reset regexp object state
+        var match;
+        while ((match = regex.exec(string)) !== null) {
+            if (match.index <= goalI && match.index + match[0].length >= goalI) {
+                return match;
+            }
+        }
+        return null;
+    }
     
     
-    // Scrubbing a single number (with optional suffix)
-    function SimpleNumberScrub(origStringValue, prefix, suffix) {
-        this.prefix = prefix;
-        this.suffix = suffix;
+    // Scrubbing a single number
+    function SimpleNumberScrub(match) {
+        var origStringValue = match[0];
         this.origValue = parseFloat(origStringValue);
         
         // Increment slower for numbers with decimal (even if it's ".0")
         this.increment = (origStringValue.indexOf(".") === -1) ? 1 : 0.1;
     }
-    SimpleNumberScrub.parse = function (token) {
-        var candidate;
-        if (token.className === "number") {
-            // Token type number often occurs in JS and CSS code
-            // (although CodeMirror marks all sorts of CSS tokens as "number", including enums like "auto" and segments of URL paths)
-            candidate = token.string;
-        } else if (token.className === "string") {
-            // Token type string may contain a number, e.g. in HTML or SVG code
-            candidate = token.string;
-        }
-        
-        // Support numbers with a suffix like "px" or "%"
-        var extras = /([^\d\-\.]*)(-?[\d\.]+)(.*)/.exec(candidate);
-        var origStringValue = (extras && extras[2]) || candidate;
-        if (isNaN(parseFloat(origStringValue))) {
-            return null;
-        } else {
-            var prefix = (extras && extras[1]) || "";
-            var suffix = (extras && extras[3]) || "";
-            return new SimpleNumberScrub(origStringValue, prefix, suffix);
-        }
-    };
+    SimpleNumberScrub.REGEX = /-?\d*\.?\d+/g;  // TODO: don't include '-' if preceded by another digit (e.g. "1-5")
+    
     SimpleNumberScrub.prototype.update = function (delta) {
         var newVal = this.origValue + (delta * this.increment);
         if (this.increment < 1) {
@@ -84,66 +75,34 @@ define(function (require, exports, module) {
         if (this.increment < 1 && str.indexOf(".") === -1) {
             str += ".0";    // don't jitter to a shorter length when passing a whole number
         }
-        return this.prefix + str + this.suffix;
+        return str;
     };
     
-    // Color utils
-    function getColorCandidate(token) {
-        if (token.className === "atom") {
-            // Colors in CSS are type atom
-            return token.string;
-        } else if (token.className === "number") {
-            // Colors in LESS are type number
-            return token.string;
-        } else if (token.className === "string") {
-            // Token type string may contain a number in the attrs of XML-like modes (e.g. HTML or SVG)
-            return token.string;
-        }
-    }
-    
     // Scrubbing 3-digit hex color
-    function Color3Scrub(string, prefix, suffix) {
-        this.prefix = prefix;
-        this.suffix = suffix;
+    function Color3Scrub(match) {
+        var string = match[0];
         this.r = parseInt(string[1], 16);
         this.g = parseInt(string[2], 16);
         this.b = parseInt(string[3], 16);
     }
-    Color3Scrub.parse = function (token) {
-        var candidate = getColorCandidate(token);
-        var extras = /([^#]*)(#[0-9a-f]{3})([^0-9a-f]+.*|$)/i.exec(candidate);
-        if (extras) {
-            var colorStr = (extras && extras[2]) || "";
-            var prefix = (extras && extras[1]) || "";
-            var suffix = (extras && extras[3]) || "";
-            return new Color3Scrub(colorStr, prefix, suffix);
-        }
-    };
+    Color3Scrub.REGEX = /#[0-9a-f]{3}/gi;  // TODO: don't match if followed by more hex alphanum chars
+    
     Color3Scrub.prototype.update = function (delta) {
         var r = clip(this.r + delta, 15);
         var g = clip(this.g + delta, 15);
         var b = clip(this.b + delta, 15);
-        return this.prefix + "#" + r.toString(16) + g.toString(16) + b.toString(16) + this.suffix;
+        return "#" + r.toString(16) + g.toString(16) + b.toString(16);
     };
     
     // Scrubbing 6-digit hex color
-    function Color6Scrub(string, prefix, suffix) {
-        this.prefix = prefix;
-        this.suffix = suffix;
+    function Color6Scrub(match) {
+        var string = match[0];
         this.r = parseInt(string[1] + string[2], 16);
         this.g = parseInt(string[3] + string[4], 16);
         this.b = parseInt(string[5] + string[6], 16);
     }
-    Color6Scrub.parse = function (token) {
-        var candidate = getColorCandidate(token);
-        var extras = /([^#]*)(#[0-9a-f]{6})([^0-9a-f]+.*|$)/i.exec(candidate);
-        if (extras) {
-            var colorStr = (extras && extras[2]) || "";
-            var prefix = (extras && extras[1]) || "";
-            var suffix = (extras && extras[3]) || "";
-            return new Color6Scrub(colorStr, prefix, suffix);
-        }
-    };
+    Color6Scrub.REGEX = /#[0-9a-f]{6}/gi;  // TODO: don't match if followed by more hex alphanum chars
+    
     Color6Scrub.prototype.update = function (delta) {
         function force2Digits(str) {
             if (str.length === 1) {
@@ -154,20 +113,26 @@ define(function (require, exports, module) {
         var r = clip(this.r + delta, 255);
         var g = clip(this.g + delta, 255);
         var b = clip(this.b + delta, 255);
-        return this.prefix + "#" + force2Digits(r.toString(16)) + force2Digits(g.toString(16)) + force2Digits(b.toString(16)) + this.suffix;
+        return "#" + force2Digits(r.toString(16)) + force2Digits(g.toString(16)) + force2Digits(b.toString(16));
     };
     
-    function parseForScrub(token) {
-        var initialState = (
-            Color3Scrub.parse(token) ||
-            Color6Scrub.parse(token) ||
-            SimpleNumberScrub.parse(token)
-        );
-        if (initialState) {
-            // in Sprint 20 (CMv3), this ensures the entire drag (or consecutive nudges) is undone atomically; ignored in earlier builds
-            initialState.origin = "*everyscrub" + (++uniqueNum);
+    function parseForScrub(lineText, goalI) {
+        function tryMode(ScrubMode) {
+            var match = findMatchNearPos(ScrubMode.REGEX, lineText, goalI);
+            if (match) {
+                var state = new ScrubMode(match);
+                
+                // Ensures the entire drag (or consecutive nudges) is undone atomically
+                state.origin = "*everyscrub" + (++uniqueNum);
+                
+                return { state: state, match: match };
+            }
         }
-        return initialState;
+        return (
+            tryMode(Color6Scrub) ||
+            tryMode(Color3Scrub) ||
+            tryMode(SimpleNumberScrub)
+        );
     }
 
     
@@ -176,56 +141,41 @@ define(function (require, exports, module) {
         // Drag state
         var scrubState; // instance of one of the *Scrub classes
         var downX;      // mousedown pageX
-        var lastValue;  // last value from scrubState.update()
-        var lastRange;  // text range of lastValue in the code
-        
-        function delta(event) {
-            var pxDelta = event.pageX - downX;
-            return (pxDelta / 8) | 0;   // "| 0" truncates to int
-        }
+        var lastText;  // last value of scrubState.update()
+        var lastRange;  // text range of lastText in the code
         
         function moveHandler(event) {
-            var newVal = scrubState.update(delta(event));
+            var pxDelta = event.pageX - downX;
+            var valDelta = (pxDelta / 8) | 0;  // "| 0" truncates to int
+            var newText = scrubState.update(valDelta);
             
-            if (newVal !== lastValue) {
-                lastValue = newVal;
-                editor._codeMirror.replaceRange(newVal, lastRange.start, lastRange.end, scrubState.origin);
-                lastRange.end.ch = lastRange.start.ch + newVal.length;
+            if (newText !== lastText) {
+                lastText = newText;
+                editor._codeMirror.replaceRange(newText, lastRange.start, lastRange.end, scrubState.origin);
+                lastRange.end.ch = lastRange.start.ch + newText.length;
                 editor.setSelection(lastRange.start, lastRange.end);
             }
         }
-        function upHandler(event) {
-            $(window.document).off("mousemove", moveHandler);
-            $(window.document).off("mouseup", upHandler);
-        }
         
-        //  coordsChar() returns the closest insertion point, not always char the click was ON.
-        //  -------------------
-        //  |     I* X  |     |     * = mousedn
-        //  -------------------     X = coordsChar().ch, interpreted as a char pos
-        //  |     |    *I  X  |     I = coordsChar().ch, interpreted as a cursor pos / insertion point
-        //  -------------------
-        var pos = editor._codeMirror.coordsChar({x: event.pageX, y: event.pageY, left: event.pageX, top: event.pageY});  // x/y for CMv2; left/top for v3
-        var charBounds = editor._codeMirror.charCoords(pos);
-        var chLeftEdge = (charBounds.x !== undefined) ? charBounds.x : charBounds.left;  // x for CMv2; left for CMv3
-        var mousedownCh = (chLeftEdge <= event.pageX) ? pos.ch : pos.ch - 1;
+        // Note: coordsChar() returns the closest insertion point, not always char the click was ON; doesn't matter to us here though
+        var pos = editor._codeMirror.coordsChar({left: event.pageX, top: event.pageY});
+        var lineText = editor.document.getLine(pos.line);
         
-        // ch+1 because getTokenAt() returns the token *ending* at cursor pos 'ch' (char at 'ch' is NOT part of the token)
-        var token = editor._codeMirror.getTokenAt({line: pos.line, ch: mousedownCh + 1});
-        
-        // Is this token a value we can scrub? Init value-specific state if so
-        scrubState = parseForScrub(token);
-        
-        if (scrubState) {
+        // Is this pos touching a value we can scrub? Init value-specific state if so
+        var result = parseForScrub(lineText, pos.ch);
+        if (result) {
+            scrubState = result.state;
             event.stopPropagation();
             event.preventDefault();
             
             downX = event.pageX;
+            $(window.document).on("mousemove.scrubbing", moveHandler);
+            $(window.document).on("mouseup.scrubbing", function () {
+                $(window.document).off(".scrubbing", moveHandler);
+            });
             
-            lastValue = token.string;
-            lastRange = {start: {line: pos.line, ch: token.start}, end: {line: pos.line, ch: token.end}};
-            $(window.document).mousemove(moveHandler);
-            $(window.document).mouseup(upHandler);
+            lastText = result.match[0];
+            lastRange = {start: {line: pos.line, ch: result.match.index}, end: {line: pos.line, ch: result.match.index + lastText.length}};
             
             editor.setSelection(lastRange.start, lastRange.end);
         }
@@ -240,13 +190,11 @@ define(function (require, exports, module) {
             fullEditor.getInlineWidgets().forEach(function (widget) {
                 if (widget.htmlContent.contains(element)) {
                     if (widget instanceof InlineTextEditor) {
-                        widget.editors.forEach(function (editor) {
-                            if (editor.getRootElement().contains(element)) {
-                                result = editor;
-                            }
-                        });
+                        if (widget.editor && widget.editor.getRootElement().contains(element)) {
+                            result = widget.editor;
+                        }
                     } else {
-                        // Ignore mousedown on inline widgets other than editors
+                        // Ignore mousedown on inline widgets other than editors (if left undefined, we'd return fullEditor below)
                         result = null;
                     }
                 }
@@ -262,9 +210,10 @@ define(function (require, exports, module) {
     }
     
     function handleMouseDown(event) {
-        // We only care about ctrl+drag on Win, cmd+drag on Mac
+        // Ctrl+drag on Win, Cmd+drag on Mac
         if (event.which === 1 && ((isMac && event.metaKey) || (!isMac && event.ctrlKey))) {
             // Which editor did mousedown occur on (inline vs. full-size vs. no editor open)
+            // (EditorManager.getActiveEditor()/getFocusedEditor() won't have updated yet, so can't just use that)
             var editor = editorFromElement(event.target);
             if (editor) {
                 handleEditorMouseDown(editor, event);
@@ -273,8 +222,11 @@ define(function (require, exports, module) {
     }
     
     
-    // Remember state between consecutive nudges of the same number. Otherwise nudging colors wouldn't work well
-    // because we lose the original once one channel saturates
+    /**
+     * Remember state between consecutive nudges of the same value. Otherwise nudging colors wouldn't work well
+     * because we lose information once one channel saturates.
+     * @type {?{scrubState: Object, delta: number, lastText: string, line: number, ch: number, fullPath: string}}
+     */
     var lastNudge = null;
     
     function nudge(dir) {
@@ -282,47 +234,41 @@ define(function (require, exports, module) {
         if (!editor) {
             return;
         }
-        var cursorPos = editor.getCursorPos();
         
-        function getScrubState(token) {
+        var pos = editor.getCursorPos();
+        var lineText = editor.document.getLine(pos.line);
+        
+        // Is this pos touching a value we can scrub?
+        var result = parseForScrub(lineText, pos.ch);
+        var match = result && result.match;
+        var scrubState;
+        
+        if (result) {
             // We're continuing the last nudge if it's in the same place and the text is how we left it
-            if (lastNudge && cursorPos.line === lastNudge.line && token.start === lastNudge.ch && token.string === lastNudge.lastText) {
+            if (lastNudge && editor.document.file.fullPath === lastNudge.fullPath &&
+                    pos.line === lastNudge.line && match.index === lastNudge.ch && match[0] === lastNudge.lastText) {
                 lastNudge.delta += dir;
-                return lastNudge.scrubState;
+                scrubState = lastNudge.scrubState;  // (we ignore the newer result.state object)
             } else {
-                var newState = parseForScrub(token);
-                if (newState) {
-                    // Found a token to nudge that's not the last one we used, so re-init lastNudge. Don't touch lastNudge
-                    // if newState is null, since we might retry to the R of the cursor and find a match to lastNudge.
-                    lastNudge = { scrubState: newState, delta: dir, line: cursorPos.line, ch: token.start };
-                }
-                return newState;
+                // Otherwise, begin a new nudge sequence
+                lastNudge = { scrubState: result.state, delta: dir, lastText: match[0], line: pos.line, ch: match.index, fullPath: editor.document.file.fullPath };
+                scrubState = result.state;
             }
-        }
-        
-        // First try the token to the L of the cursor
-        var token = editor._codeMirror.getTokenAt(cursorPos);
-        var scrubState = getScrubState(token);
-        if (!scrubState) {
-            // If not, try to the R of the cursor
-            cursorPos.ch++;
-            token = editor._codeMirror.getTokenAt(cursorPos);
-            scrubState = getScrubState(token);
-        }
-        
-        if (scrubState) {
-            var newVal = scrubState.update(lastNudge.delta);
-            var tokenRange = {start: {line: cursorPos.line, ch: token.start}, end: {line: cursorPos.line, ch: token.end}};
-            editor._codeMirror.replaceRange(newVal, tokenRange.start, tokenRange.end, scrubState.origin);
-            lastNudge.lastText = newVal;
             
-            tokenRange.end.ch = tokenRange.start.ch + newVal.length;
-            editor.setSelection(tokenRange.start, tokenRange.end);
+            // Replace old text value with new text value
+            var newText = scrubState.update(lastNudge.delta);
+            var lastRange = {start: {line: pos.line, ch: lastNudge.ch}, end: {line: pos.line, ch: lastNudge.ch + lastNudge.lastText.length}};
+            editor._codeMirror.replaceRange(newText, lastRange.start, lastRange.end, scrubState.origin);
+            
+            lastNudge.lastText = newText;
+            lastRange.end.ch = lastRange.start.ch + newText.length;
+            
+            editor.setSelection(lastRange.start, lastRange.end);
         }
-
     }
     
-    // Init: listen to all mousedowns in the editor area
+    
+    // Listen to all mousedowns in the editor area
     $("#editor-holder")[0].addEventListener("mousedown", handleMouseDown, true);
     
     // Keyboard shortcuts to "nudge" value up/down
