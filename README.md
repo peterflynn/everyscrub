@@ -1,12 +1,13 @@
 Everyscrub for Brackets
 =======================
-Everything's a scrubber! Cmd/Ctrl + drag on any number or hex color to scrub its value. In "Live development" mode, the browser
+> **Note: Shortcuts & modifiers changed recently** to avoid clashing with the "multiple cursors" functionality in Brackets Sprint 38.
+
+Everything's a scrubber! Alt/⌥ + drag on any number or hex color to scrub its value. In "Live Development" mode, the browser
 preview will update in real time while you're dragging.
 
-You can also tap Shift+Alt+Up/Down to "nudge" the value in individual increments.
+You can also tap Ctrl/⌘+Alt + Up/Down to "nudge" the value in individual increments.
 
-Works with any number in CSS, LESS, SVG, HTML and JavaScript. Also works with 3- or 6-digit hex colors (darkens/lightens the
-color). Just hold down Cmd (Mac) or Ctrl (Win), mouse down on the number in your source code, and drag the mouse horizontally.
+Scrubbing a hex color darkens/lightens the color. Like numbers, this works in any file type (not just CSS, JS, etc.).
 
 
 How to Install

@@ -3,7 +3,7 @@
     "title": "Everyscrub",
     "homepage": "https://github.com/peterflynn/everyscrub",
     "author": "Peter Flynn",
-    "version": "1.3.0",
+    "version": "1.4.0",
     "engines": { "brackets": ">=0.33" },
-    "description": "Everything's a scrubber! Cmd/Ctrl + drag on any number or hex color to scrub its value and update the browser in real time, or use Shift+Alt+Up/Down to 'nudge' values with the keyboard."
+    "description": "Everything's a scrubber! Alt/\u2325 + drag on any number or hex color to scrub its value and update the browser in real time. Or use Ctrl/\u2318+Alt + Up/Down to 'nudge' values with the keyboard."
 }

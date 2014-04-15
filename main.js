@@ -153,7 +153,7 @@ define(function (require, exports, module) {
                 lastText = newText;
                 editor._codeMirror.replaceRange(newText, lastRange.start, lastRange.end, scrubState.origin);
                 lastRange.end.ch = lastRange.start.ch + newText.length;
-                editor.setSelection(lastRange.start, lastRange.end);
+                editor.setSelection(lastRange.start, lastRange.end, undefined, undefined, scrubState.origin);
             }
         }
         
@@ -177,7 +177,7 @@ define(function (require, exports, module) {
             lastText = result.match[0];
             lastRange = {start: {line: pos.line, ch: result.match.index}, end: {line: pos.line, ch: result.match.index + lastText.length}};
             
-            editor.setSelection(lastRange.start, lastRange.end);
+            editor.setSelection(lastRange.start, lastRange.end, undefined, undefined, scrubState.origin);
         }
     }
     
@@ -210,8 +210,8 @@ define(function (require, exports, module) {
     }
     
     function handleMouseDown(event) {
-        // Ctrl+drag on Win, Cmd+drag on Mac
-        if (event.which === 1 && ((isMac && event.metaKey) || (!isMac && event.ctrlKey))) {
+        // Alt+drag on Win, Opt+drag on Mac
+        if (event.which === 1 && event.altKey) {
             // Which editor did mousedown occur on (inline vs. full-size vs. no editor open)
             // (EditorManager.getActiveEditor()/getFocusedEditor() won't have updated yet, so can't just use that)
             var editor = editorFromElement(event.target);
@@ -263,7 +263,7 @@ define(function (require, exports, module) {
             lastNudge.lastText = newText;
             lastRange.end.ch = lastRange.start.ch + newText.length;
             
-            editor.setSelection(lastRange.start, lastRange.end);
+            editor.setSelection(lastRange.start, lastRange.end, undefined, undefined, scrubState.origin);
         }
     }
     
@@ -276,6 +276,6 @@ define(function (require, exports, module) {
         CMD_NUDGE_DN = "pflynn.everyscrub.nudge_down";
     CommandManager.register("Increment Number", CMD_NUDGE_UP, function () { nudge(+1); });
     CommandManager.register("Decrement Number", CMD_NUDGE_DN, function () { nudge(-1); });
-    KeyBindingManager.addBinding(CMD_NUDGE_UP, "Shift-Alt-Up");
-    KeyBindingManager.addBinding(CMD_NUDGE_DN, "Shift-Alt-Down");
+    KeyBindingManager.addBinding(CMD_NUDGE_UP, "Ctrl-Alt-Up");
+    KeyBindingManager.addBinding(CMD_NUDGE_DN, "Ctrl-Alt-Down");
 });
